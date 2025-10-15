@@ -3,6 +3,9 @@
 
 #include "itasksys.h"
 #include <thread>
+#include <atomic>
+#include <mutex>
+#include <condition_variable>
 
 
 /*
@@ -36,6 +39,9 @@ class TaskSystemParallelSpawn: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+        void threadFunction(std::vector<int> work, int num_total_tasks);
+        int max_threads;
+        IRunnable* runnable;
 };
 
 /*
