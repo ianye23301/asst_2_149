@@ -3,6 +3,8 @@
 
 #include "itasksys.h"
 #include <thread>
+#include <atomic>
+#include <mutex>
 struct BulkTask
 {
     int launchId;
