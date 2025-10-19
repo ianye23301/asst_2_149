@@ -53,11 +53,16 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
 
-void TaskSystemParallelSpawn::threadFunction(int start, int end, int num_total_tasks)
+void TaskSystemParallelSpawn::threadFunction(int num_total_tasks)
 {
-    for (int i = start; i < end; i++) {
-        runnable->runTask(i, num_total_tasks);
+    while (true)
+    {
+        int myTask = counter.fetch_sub(1);
+        if (myTask <= 0)
+            break;
+        runnable->runTask(myTask-1, num_total_tasks);
     }
+        
 }
 
 void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
@@ -68,23 +73,15 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // tasks sequentially on the calling thread.
     //
     std::thread workers[max_threads];
-    std::vector<std::pair<int, int>> args[max_threads];
-
+    counter.store(num_total_tasks);
     this->runnable = runnable;
-
-    int tasks_per_thread = num_total_tasks / max_threads;
-    int remainder = num_total_tasks % max_threads;
-
-    int start_0 = 0;
-    int end_0 = tasks_per_thread + std::min(1, remainder);
-
+    
 // Spawn worker threads 1 through max_threads-1
     for (int i = 1; i < max_threads; i++) {
-        int start = i * tasks_per_thread + std::min(i, remainder);
-        int end = (i + 1) * tasks_per_thread + std::min(i + 1, remainder);
-        workers[i] = std::thread(&TaskSystemParallelSpawn::threadFunction, this, start, end, num_total_tasks);
+
+        workers[i] = std::thread(&TaskSystemParallelSpawn::threadFunction, this, num_total_tasks);
     }
-    threadFunction(start_0, end_0, num_total_tasks);
+    threadFunction(num_total_tasks);
 
     for (int i = 1; i < max_threads; i++)
     {
