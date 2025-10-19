@@ -6,24 +6,19 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <unordered_map>
 
 struct BulkTask
 {
-    int launchId;
     std::mutex lock;
+    int launchId;
     IRunnable* runnable;
     int num_total_tasks;
-    std::atomic<int> instances;
-    std::vector<BulkTask*> myDeps;
-    std::atomic<int> remainingDeps;
-};
+    std::atomic<int> remaining;
+    std::atomic<int> done;
 
-struct Task {
-    IRunnable* runnable;
-    int num_total_tasks;
-    int id; 
-    int task_id;
-    BulkTask* bulk;
+    std::vector<BulkTask*> children;
+    std::atomic<int> parents;
 };
 
 
@@ -100,22 +95,16 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
-
-        std::atomic<int> last_id;
-        std::atomic<int> working;
         std::atomic<bool> shutdown;
+        std::atomic<int> lastId;
+        std::atomic<int> working;
 
-        std::vector<Task*> readyQueue;
-        std::mutex readyQueueLock;
-        std::condition_variable readyQueueCv;
-      
+        std::unordered_map<TaskID, BulkTask*> allBulks;
+        std::mutex allBulksLock; 
+
         std::vector<BulkTask*> bulkList;
-        std::mutex bulkLock;
-
-        std::vector<BulkTask*> waitingQueue;
-        std::mutex waitingQueueLock;
-        std::mutex waitingQueueCv;        
-
+        std::mutex bulkListLock; 
+        std::condition_variable bulkListCv;
 
 };
 

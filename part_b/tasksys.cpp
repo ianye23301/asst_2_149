@@ -131,12 +131,9 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
     threadPool = std::vector<std::thread>(num_threads);
     shutdown.store(false);
-    readyQueue = std::vector<Task*>(0);
-    bulkList = std::vector<BulkTask*>(0);
     working.store(0);
+    lastId.store(0);
 
-    this->num_threads = num_threads;
-    last_id = 0;
     for (int i = 0; i < num_threads; i++)
     {
         threadPool[i] = std::thread(&TaskSystemParallelThreadPoolSleeping::threadFunction, this);
@@ -145,136 +142,111 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     sync();
-    shutdown.store(true);
-    readyQueueCv.notify_all();      // wake sleepers so they can see shutdown
 
-    for (int i = 0; i < num_threads; i++)
+    shutdown.store(true);
+    bulkListCv.notify_all();
+    for (int i = 0; i < threadPool.size(); i++)
     {
         threadPool[i].join();
     }
-    for (int i = 0; i < bulkList.size(); i++)
-    {
-        delete bulkList[i];
+    for (auto& pair : allBulks) {
+        delete pair.second;  
     }
 }
 
 
 void TaskSystemParallelThreadPoolSleeping::threadFunction()
 {
-    // pop off of ready queue 
-    // wait for ready queue not empty
     while (!shutdown.load())
     {
-        std::unique_lock<std::mutex> lock(readyQueueLock);
-        readyQueueCv.wait(lock, [this]{return readyQueue.size() || shutdown.load();});
+        std::unique_lock<std::mutex> bl(bulkListLock);
+        bulkListCv.wait(bl, [this]{return !bulkList.empty() || shutdown.load();});
         if (shutdown.load())
             break;
-        Task* myTask = readyQueue.back();
-        readyQueue.pop_back();
-        lock.unlock();
-
-        myTask->runnable->runTask(myTask->id, myTask->num_total_tasks);
-        std::unique_lock<std::mutex> ql(readyQueueLock);
-        std::unique_lock<std::mutex> bl(bulkLock);
-
-        int old = myTask->bulk->instances.fetch_sub(1);
-        int deps_enqueued = 0;
-
-        if (old == 1) {
-            for (BulkTask* b : myTask->bulk->myDeps) {
-                if (b->remainingDeps.fetch_sub(1) - 1 == 0) {
-                    // enqueue all tasks for b
-                    for (int i = 0; i < b->num_total_tasks; ++i) {
-                        Task* t = new Task{ b->runnable, b->num_total_tasks, i, b->launchId, b };
-                        readyQueue.push_back(t);
-                    }
-                    deps_enqueued += b->num_total_tasks;
-                }
-            }
+        BulkTask* myTask = bulkList.back();
+        int myRemaining = myTask->remaining.fetch_sub(1);
+        if (myRemaining == 1)
+        {
+            bulkList.pop_back();
         }
-
-        // Now update working: -1 for the finished task, +deps_enqueued for new ones
-        working.fetch_add(deps_enqueued - 1);
-
-        // locks go out of scope here (bulk first, then queue)
         bl.unlock();
-        ql.unlock();
+        myTask->runnable->runTask(myRemaining - 1, myTask->num_total_tasks);
+        
+        int myDone = myTask->done++;
 
-        readyQueueCv.notify_all();
+        if (myDone == myTask->num_total_tasks - 1)
+        {
+           bl.lock();
+
+           working--;
+
+           for (BulkTask* b : myTask->children)
+           {
+                if (b->parents.fetch_sub(1) == 1)
+                {
+                    bulkList.push_back(b);
+                }
+           }
+           bl.unlock();
+
+           bulkListCv.notify_all();
+           continue;
+        }
     }
-    
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
-    std::vector<TaskID> deps(0);
-    int res = runAsyncWithDeps(runnable, num_total_tasks, deps);
+    std::vector<TaskID> deps = {};
+    // printf("RUN \n");
+    runAsyncWithDeps(runnable, num_total_tasks, deps);
     sync();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                                    const std::vector<TaskID>& deps) {
-                                       
-                                                        
-    std::unique_lock<std::mutex> ql(readyQueueLock);
-    std::unique_lock<std::mutex> bl(bulkLock);
-                                                    
-    int myId = last_id.fetch_add(1);
-    BulkTask* bulkTask = new BulkTask;
-    bulkTask->instances.store(num_total_tasks);
-    bulkTask->num_total_tasks = num_total_tasks;
-    bulkTask->launchId = myId;
-    bulkTask->runnable = runnable;
-    bulkTask->remainingDeps.store(0);
+                                                    const std::vector<TaskID>& deps) { 
+    int myId = lastId.fetch_add(1);                                                                                      
+    std::unique_lock<std::mutex> bl(bulkListLock);
+    BulkTask* b = new BulkTask;
 
-    //no thread computation is allowed to happen while tasks are being added, 
-    
-    for (TaskID t : deps)
+    b->launchId = myId;
+    b->num_total_tasks = num_total_tasks;
+    b->remaining = num_total_tasks;
+    b->parents.store(0);
+    b->children = {};
+    b->runnable = runnable;
+    b->done.store(0);
+
+    for (TaskID dep : deps)
     {
-        for (BulkTask* b : bulkList)
+        if (allBulks.find(dep) == allBulks.end())
+            continue;
+        BulkTask* parent = allBulks[dep];
+        parent->lock.lock();
+
+        if (parent->done.load() < parent->num_total_tasks)
         {
-            if (b->launchId == t && b->instances > 0) // ok now the problem is deps remaining = bulk tasks that it depends on that haven't finished. guaranteed that only 1 bulk task corresponds to 1 dep. 
-            {
-                b->myDeps.push_back(bulkTask);
-                bulkTask->remainingDeps++;
-            }
+            parent->children.push_back(b);
+            b->parents.fetch_add(1);
         }
+        parent->lock.unlock();
     }
-    
-    bulkList.push_back(bulkTask);
 
-    //add to ready queue if no deps left
+    allBulks[myId] = b;
+    working.fetch_add(1);
 
-    if (bulkTask->remainingDeps == 0) {
-        for (int i = 0; i < num_total_tasks; i++)
-            {    
-                Task* task_p = new Task;
-                task_p->runnable = runnable;
-                task_p->num_total_tasks = num_total_tasks;
-                task_p->id = i;
-                task_p->task_id = myId;
-                task_p->bulk = bulkTask;
-                readyQueue.push_back(task_p);
-                working.fetch_add(1);
-            } 
-    }
+    if (b->parents.load() == 0)
+        bulkList.push_back(b);
 
     bl.unlock();
-    ql.unlock();
-    
-
-    readyQueueCv.notify_all();
-    
-    // for (int i = 0; i < num_total_tasks; i++) {
-    //     runnable->runTask(i, num_total_tasks);
-    // }
-    // printf("my id = %d", myId);
-    return myId;
+    bulkListCv.notify_all();    
+    return myId;         
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
 
-    std::unique_lock<std::mutex> lock(readyQueueLock);
-    readyQueueCv.wait(lock, [this]{return readyQueue.size() == 0 && working.load() <= 0;});
-    lock.unlock();
+    std::unique_lock<std::mutex> bl(bulkListLock);
+    bulkListCv.wait(bl, [this]{
+        return working.load() == 0;});
+    // printf("ENDED SYNC \n");
     return;
 }

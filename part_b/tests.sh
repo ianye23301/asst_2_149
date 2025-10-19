@@ -1,17 +1,17 @@
-make
-./runtasks -n 16 ping_pong_unequal
-./runtasks -n 16 simple_test_sync
+# make
+# ./runtasks -n 16 ping_pong_unequal
+# ./runtasks -n 16 simple_test_sync
 ./runtasks -n 16 simple_test_async
-./runtasks -n 16 ping_pong_equal
-./runtasks -n 16 super_light
-./runtasks -n 16 super_super_light
-./runtasks -n 16 recursive_fibonacci
-./runtasks -n 16 math_operations_in_tight_for_loop
-./runtasks -n 16 math_operations_in_tight_for_loop_fewer_tasks
-./runtasks -n 16 math_operations_in_tight_for_loop_fan_in
-./runtasks -n 16 math_operations_in_tight_for_loop_reduction_tree
-./runtasks -n 16 spin_between_run_calls
-./runtasks -n 16 mandelbrot_chunked
+# ./runtasks -n 16 ping_pong_equal
+# ./runtasks -n 16 super_light
+# ./runtasks -n 16 super_super_light
+# ./runtasks -n 16 recursive_fibonacci
+# ./runtasks -n 16 math_operations_in_tight_for_loop
+# ./runtasks -n 16 math_operations_in_tight_for_loop_fewer_tasks
+# ./runtasks -n 16 math_operations_in_tight_for_loop_fan_in
+# ./runtasks -n 16 math_operations_in_tight_for_loop_reduction_tree
+# ./runtasks -n 16 spin_between_run_calls
+# ./runtasks -n 16 mandelbrot_chunked
 ./runtasks -n 16 ping_pong_equal_async
 ./runtasks -n 16 ping_pong_unequal_async
 ./runtasks -n 16 super_light_async

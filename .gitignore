@@ -1,0 +1,53 @@
+# VS Code
+.vscode/
+*.code-workspace
+
+# Build directories and object files
+objs/
+build/
+bin/
+*.o
+*.obj
+*.exe
+*.out
+*.app
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executables
+runtasks
+runtasks_*
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+
+# Core dumps
+core

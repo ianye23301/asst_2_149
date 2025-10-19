@@ -36,6 +36,7 @@
         "memory": "cpp",
         "algorithm": "cpp",
         "condition_variable": "cpp",
-        "deque": "cpp"
+        "deque": "cpp",
+        "unordered_map": "cpp"
     }
 }
