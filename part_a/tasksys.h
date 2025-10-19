@@ -39,7 +39,7 @@ class TaskSystemParallelSpawn: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
-        void threadFunction(std::vector<int> work, int num_total_tasks);
+        void threadFunction(int start, int end, int num_total_tasks);
         int max_threads;
         IRunnable* runnable;
 };
